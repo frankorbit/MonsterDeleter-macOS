@@ -1,0 +1,8 @@
+.DS_Store
+/build/
+/DerivedData/
+/Generated/
+/MonsterDeleter.xcodeproj/
+/Resources/Audio/
+/Resources/Images/
+*.xcuserstate

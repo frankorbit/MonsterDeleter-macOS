@@ -1,0 +1,106 @@
+name: MonsterDeleter
+
+options:
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    CLANG_ENABLE_MODULES: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  MonsterDeleter:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+      - path: Resources
+        buildPhase: resources
+    dependencies:
+      - target: MonsterDeleterFinderSync
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wuyi.MonsterDeleter
+        PRODUCT_NAME: MonsterDeleter
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_APP_SANDBOX: NO
+    info:
+      path: Generated/MonsterDeleter-Info.plist
+      properties:
+        CFBundleDisplayName: 大将怪兽摧毁
+        CFBundleName: MonsterDeleter
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.utilities
+        LSUIElement: true
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHighResolutionCapable: true
+        NSServices:
+          - NSMenuItem:
+              default: 召唤大将怪兽摧毁
+            NSMessage: summonMonster
+            NSPortName: MonsterDeleter
+            NSRequiredContext:
+              NSApplicationIdentifier: com.apple.finder
+            NSSendFileTypes:
+              - public.item
+            NSSendTypes:
+              - public.file-url
+            NSServiceDescription: 让大将怪兽把 Finder 中选中的文件或文件夹移入废纸篓
+        CFBundleURLTypes:
+          - CFBundleURLName: com.wuyi.MonsterDeleter.command
+            CFBundleURLSchemes:
+              - monsterdeleter
+
+  MonsterDeleterFinderSync:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: FinderSyncExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wuyi.MonsterDeleter.FinderSync
+        PRODUCT_NAME: MonsterDeleterFinderSync
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: FinderSyncExtension/MonsterDeleterFinderSync.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+    info:
+      path: Generated/MonsterDeleterFinderSync-Info.plist
+      properties:
+        CFBundleDisplayName: 大将怪兽 Finder 扩展
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.FinderSync
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FinderSync
+
+  MonsterDeleterTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: MonsterDeleter
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.wuyi.MonsterDeleterTests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  MonsterDeleter:
+    build:
+      targets:
+        MonsterDeleter: all
+        MonsterDeleterFinderSync: all
+        MonsterDeleterTests: [test]
+    test:
+      gatherCoverageData: true
+      targets:
+        - MonsterDeleterTests
