@@ -34,6 +34,7 @@ targets:
       path: Generated/MonsterDeleter-Info.plist
       properties:
         CFBundleDisplayName: 大将怪兽摧毁
+        CFBundleIconFile: MonsterDeleter
         CFBundleName: MonsterDeleter
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
