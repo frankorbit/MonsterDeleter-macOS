@@ -4,44 +4,75 @@ import SwiftUI
 struct SpriteSheetView: View {
   let animation: SpriteAnimation
   let displayHeight: CGFloat
+  let onFramePresented: @MainActor (Int) -> Void
+  let onCompletion: @MainActor () -> Void
 
   private let frames: [CGImage]
 
   init(
     animation: SpriteAnimation,
     displayHeight: CGFloat,
-    frameProvider: SpriteSheetFrameProviding
+    frameProvider: SpriteSheetFrameProviding,
+    onFramePresented: @escaping @MainActor (Int) -> Void = { _ in },
+    onCompletion: @escaping @MainActor () -> Void = {}
   ) {
     self.animation = animation
     self.displayHeight = displayHeight
+    self.onFramePresented = onFramePresented
+    self.onCompletion = onCompletion
     frames = frameProvider.frames(for: animation.asset)
   }
 
   var body: some View {
-    TimelineView(.animation(minimumInterval: 1 / animation.framesPerSecond)) { context in
-      let frameIndex = frameIndex(at: context.date)
-      if frames.indices.contains(frameIndex) {
-        frameView(image: frames[frameIndex])
-      }
-    }
+    SpritePlaybackView(
+      animation: animation,
+      displayHeight: displayHeight,
+      frames: frames,
+      onFramePresented: onFramePresented,
+      onCompletion: onCompletion
+    )
+    .id(animation.startedAt)
     .accessibilityHidden(true)
   }
+}
 
-  private func frameIndex(at date: Date) -> Int {
-    guard !animation.frameIndices.isEmpty else { return 0 }
+private struct SpritePlaybackView: View {
+  let animation: SpriteAnimation
+  let displayHeight: CGFloat
+  let frames: [CGImage]
+  let onFramePresented: @MainActor (Int) -> Void
+  let onCompletion: @MainActor () -> Void
 
-    let elapsed = max(0, date.timeIntervalSince(animation.startedAt))
-    let rawIndex = Int(elapsed * animation.framesPerSecond)
-    let animationIndex = animation.loops
-      ? rawIndex % animation.frameIndices.count
-      : min(rawIndex, animation.frameIndices.count - 1)
-    return animation.frameIndices[animationIndex]
+  @State private var animationIndex = 0
+
+  var body: some View {
+    Group {
+      if let frame = currentFrame {
+        frameView(image: frame)
+      } else {
+        Color.clear
+          .frame(width: frameSize.width, height: frameSize.height)
+      }
+    }
+    .task(id: animationIndex) {
+      await presentCurrentFrame()
+    }
+  }
+
+  private var currentFrame: CGImage? {
+    guard animation.frameIndices.indices.contains(animationIndex) else { return nil }
+
+    let frameIndex = animation.frameIndices[animationIndex]
+    guard frames.indices.contains(frameIndex) else { return nil }
+    return frames[frameIndex]
+  }
+
+  private var frameSize: CGSize {
+    animation.asset.displaySize(height: displayHeight)
   }
 
   @ViewBuilder
   private func frameView(image: CGImage) -> some View {
-    let frameSize = animation.asset.displaySize(height: displayHeight)
-
     Image(decorative: image, scale: 1)
       .resizable()
       .interpolation(.high)
@@ -50,5 +81,35 @@ struct SpriteSheetView: View {
         transaction.animation = nil
         transaction.disablesAnimations = true
       }
+  }
+
+  @MainActor
+  private func presentCurrentFrame() async {
+    guard animation.frameIndices.indices.contains(animationIndex),
+          animation.framesPerSecond > 0
+    else {
+      onCompletion()
+      return
+    }
+
+    onFramePresented(animationIndex)
+
+    do {
+      try await Task.sleep(for: .seconds(1 / animation.framesPerSecond))
+    } catch {
+      return
+    }
+
+    guard !Task.isCancelled else { return }
+
+    if animationIndex == animation.frameIndices.count - 1 {
+      if animation.loops {
+        animationIndex = 0
+      } else {
+        onCompletion()
+      }
+    } else {
+      animationIndex += 1
+    }
   }
 }
