@@ -22,10 +22,13 @@ final class MonsterDeleterStore {
   private let walkingDuration: TimeInterval
   private let flightDuration: TimeInterval
   private var sequenceTask: Task<Void, Never>?
-  private var explosionTask: Task<Void, Never>?
+  private var trashTask: Task<Void, Never>?
+  private var kickAnimationFinished = false
+  private var trashFinished = false
 
   private let monsterHeight: CGFloat = 250
   private let explosionHeight: CGFloat = 170
+  private let kickImpactFrameIndex = 5
 
   init(
     target: DestructionTarget,
@@ -88,37 +91,62 @@ final class MonsterDeleterStore {
     guard phase == .awaitingConfirmation else { return }
 
     sequenceTask?.cancel()
-    sequenceTask = Task { [weak self] in
-      guard let self else { return }
-      phase = .kicking
-      monsterAnimation = SpriteAnimation(asset: .kick, loops: false)
+    sequenceTask = nil
+    kickAnimationFinished = false
+    trashFinished = false
+    phase = .kicking
+    monsterAnimation = SpriteAnimation(asset: .kick, loops: false)
+  }
 
-      guard await pause(for: .milliseconds(625)) else { return }
-      guard await triggerExplosionAndTrash() else { return }
-      guard await pause(for: .milliseconds(1_250)) else { return }
+  func monsterAnimationDidPresentFrame(
+    _ animation: SpriteAnimation,
+    animationIndex: Int
+  ) {
+    guard phase == .kicking,
+          monsterAnimation == animation,
+          animationIndex == kickImpactFrameIndex,
+          explosionAnimation == nil
+    else { return }
 
-      phase = .celebrating
-      let leoAnimation = SpriteAnimation.leoMount()
-      monsterAnimation = leoAnimation
-      let leoDuration = Int64((leoAnimation.duration * 1_000).rounded())
-      guard await pause(for: .milliseconds(leoDuration)) else { return }
+    startExplosion()
+  }
 
-      phase = .flying
-      monsterAnimation = SpriteAnimation(asset: .fly, loops: true)
-      guard await pause(for: .milliseconds(250)) else { return }
+  func monsterAnimationDidFinish(_ animation: SpriteAnimation) {
+    guard monsterAnimation == animation else { return }
 
-      let flightDestination = CGPoint(
-        x: canvasSize.width + 200,
-        y: monsterPosition.y
-      )
-      guard await moveMonster(to: flightDestination, duration: flightDuration) else { return }
-      finish()
+    switch phase {
+    case .kicking:
+      kickAnimationFinished = true
+      startCelebratingIfReady()
+    case .celebrating:
+      startFlying()
+    default:
+      break
     }
+  }
+
+  func explosionAnimationDidPresentFrame(
+    _ animation: SpriteAnimation,
+    animationIndex: Int
+  ) {
+    guard explosionAnimation == animation,
+          animationIndex == 0,
+          trashTask == nil
+    else { return }
+
+    trashTask = Task { [weak self] in
+      await self?.trashTarget()
+    }
+  }
+
+  func explosionAnimationDidFinish(_ animation: SpriteAnimation) {
+    guard explosionAnimation == animation else { return }
+    explosionAnimation = nil
   }
 
   func cancel() {
     sequenceTask?.cancel()
-    explosionTask?.cancel()
+    trashTask?.cancel()
     audioService.stopAll()
     onFinished()
   }
@@ -138,26 +166,49 @@ final class MonsterDeleterStore {
     }
   }
 
-  private func triggerExplosionAndTrash() async -> Bool {
+  private func startExplosion() {
     audioService.playExplosion()
     explosionAnimation = SpriteAnimation(asset: .explosion, loops: false)
+  }
 
-    explosionTask = Task { [weak self] in
-      guard let self, await pause(for: .milliseconds(1_875)) else { return }
-      explosionAnimation = nil
-    }
-
+  private func trashTarget() async {
     do {
       try await trashService.trash(target.url)
-      return true
+      guard !Task.isCancelled else { return }
+      trashFinished = true
+      startCelebratingIfReady()
+    } catch is CancellationError {
+      return
     } catch {
       sequenceTask?.cancel()
-      explosionTask?.cancel()
       explosionAnimation = nil
       audioService.stopAll()
       errorMessage = error.localizedDescription
       phase = .failed
-      return false
+    }
+  }
+
+  private func startCelebratingIfReady() {
+    guard phase == .kicking, kickAnimationFinished, trashFinished else { return }
+
+    phase = .celebrating
+    monsterAnimation = SpriteAnimation.leoMount()
+  }
+
+  private func startFlying() {
+    guard phase == .celebrating else { return }
+
+    phase = .flying
+    monsterAnimation = SpriteAnimation(asset: .fly, loops: true)
+    sequenceTask = Task { [weak self] in
+      guard let self, await pause(for: .milliseconds(250)) else { return }
+
+      let flightDestination = CGPoint(
+        x: canvasSize.width + 200,
+        y: monsterPosition.y
+      )
+      guard await moveMonster(to: flightDestination, duration: flightDuration) else { return }
+      finish()
     }
   }
 

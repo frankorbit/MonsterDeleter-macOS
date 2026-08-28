@@ -2,7 +2,10 @@ import SwiftUI
 
 struct TargetingOverlayView: View {
   @Bindable var store: MonsterDeleterStore
+  @State private var destructionRequested = false
+
   private let frameProvider: SpriteSheetFrameProviding
+  private let destructionAssets: [SpriteSheetAsset] = [.kick, .explosion, .leo, .fly]
 
   init(
     store: MonsterDeleterStore,
@@ -37,6 +40,16 @@ struct TargetingOverlayView: View {
       .frame(width: proxy.size.width, height: proxy.size.height)
     }
     .background(Color.clear)
+    .task {
+      await frameProvider.prepare(destructionAssets)
+    }
+    .task(id: destructionRequested) {
+      guard destructionRequested else { return }
+
+      await frameProvider.prepare(destructionAssets)
+      guard !Task.isCancelled, store.showsConfirmation else { return }
+      store.confirmDestruction()
+    }
   }
 
   private func targetingLayer(size: CGSize) -> some View {
@@ -82,7 +95,16 @@ struct TargetingOverlayView: View {
       SpriteSheetView(
         animation: animation,
         displayHeight: store.monsterSize.height,
-        frameProvider: frameProvider
+        frameProvider: frameProvider,
+        onFramePresented: { animationIndex in
+          store.monsterAnimationDidPresentFrame(
+            animation,
+            animationIndex: animationIndex
+          )
+        },
+        onCompletion: {
+          store.monsterAnimationDidFinish(animation)
+        }
       )
         .frame(width: store.monsterSize.width, height: store.monsterSize.height)
         .position(
@@ -108,7 +130,16 @@ struct TargetingOverlayView: View {
       SpriteSheetView(
         animation: animation,
         displayHeight: store.explosionSize.height,
-        frameProvider: frameProvider
+        frameProvider: frameProvider,
+        onFramePresented: { animationIndex in
+          store.explosionAnimationDidPresentFrame(
+            animation,
+            animationIndex: animationIndex
+          )
+        },
+        onCompletion: {
+          store.explosionAnimationDidFinish(animation)
+        }
       )
         .frame(width: store.explosionSize.width, height: store.explosionSize.height)
         .position(
@@ -135,12 +166,21 @@ struct TargetingOverlayView: View {
         }
         .keyboardShortcut(.cancelAction)
 
-        Button("是的，踢爆它") {
-          store.confirmDestruction()
+        Button {
+          destructionRequested = true
+        } label: {
+          HStack(spacing: 8) {
+            if destructionRequested {
+              ProgressView()
+                .controlSize(.small)
+            }
+            Text("是的，踢爆它")
+          }
         }
         .buttonStyle(.borderedProminent)
         .tint(.red)
         .keyboardShortcut(.defaultAction)
+        .disabled(destructionRequested)
       }
       .controlSize(.large)
     }
